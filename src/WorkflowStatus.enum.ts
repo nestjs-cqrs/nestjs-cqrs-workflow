@@ -1,0 +1,7 @@
+export enum WorkflowStatus {
+  STARTED = 'STARTED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  ABORTED = 'ABORTED',
+}
