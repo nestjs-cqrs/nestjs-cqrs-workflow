@@ -30,6 +30,7 @@ jobs:
             pkg.devDependencies['@turkelk/nestjs-cqrs-kernel'] = pkg.peerDependencies['@turkelk/nestjs-cqrs-kernel'];
             require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
+          rm package-lock.json
 
       - run: npm install
 
