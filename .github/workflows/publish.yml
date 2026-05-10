@@ -1,0 +1,42 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Set version from tag
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+
+      - name: Use published kernel instead of local file reference
+        run: |
+          node -e "
+            const pkg = require('./package.json');
+            pkg.devDependencies['@turkelk/nestjs-cqrs-kernel'] = pkg.peerDependencies['@turkelk/nestjs-cqrs-kernel'];
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm test
+
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
