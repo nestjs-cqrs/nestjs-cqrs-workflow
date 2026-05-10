@@ -31,7 +31,7 @@ jobs:
             require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
-      - run: npm ci
+      - run: npm install
 
       - run: npm run build
 
