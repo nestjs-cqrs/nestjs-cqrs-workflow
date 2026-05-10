@@ -1,4 +1,11 @@
+import 'reflect-metadata';
+
 export const WORKFLOW_ENGINE = Symbol('WORKFLOW_ENGINE');
+const WORKFLOW_KEY = 'arex:workflow';
+
+export function getWorkflowMetadata(target: object): { processDefinitionId: string } | undefined {
+  return Reflect.getMetadata(WORKFLOW_KEY, target);
+}
 
 export interface WorkflowStartResult {
   workflowInstanceId: string;
