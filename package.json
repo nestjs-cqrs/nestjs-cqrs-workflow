@@ -1,6 +1,6 @@
 {
   "name": "@turkelk/nestjs-cqrs-workflow",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Kogito workflow engine companion package for @turkelk/nestjs-cqrs-kernel",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
