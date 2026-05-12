@@ -7,7 +7,8 @@ type CommandConstructor = new (...args: any[]) => object;
 @Injectable()
 export class WorkflowCommandRegistry implements OnModuleInit {
   private readonly logger = new Logger(WorkflowCommandRegistry.name);
-  private readonly registry = new Map<string, CommandConstructor>();
+  private readonly workflowCommands = new Map<string, CommandConstructor>();
+  private readonly allCommands = new Map<string, CommandConstructor>();
 
   constructor(private readonly modulesContainer: ModulesContainer) {}
 
@@ -17,22 +18,34 @@ export class WorkflowCommandRegistry implements OnModuleInit {
         const { instance } = wrapper;
         if (!instance || !instance.constructor) return;
 
-        const handler = instance as any;
-        const command = this.getCommandFromHandler(handler);
+        const command = this.getCommandFromHandler(instance);
         if (!command) return;
+
+        this.allCommands.set(command.name, command as CommandConstructor);
 
         const metadata = getWorkflowMetadata(command);
         if (metadata) {
-          this.registry.set(command.name, command as CommandConstructor);
+          this.workflowCommands.set(command.name, command as CommandConstructor);
         }
       });
     });
 
-    this.logger.log(`Auto-discovered ${this.registry.size} workflow command(s): ${[...this.registry.keys()].join(', ')}`);
+    this.logger.log(
+      `Registered ${this.allCommands.size} command(s): ${[...this.allCommands.keys()].join(', ')}`,
+    );
+    if (this.workflowCommands.size > 0) {
+      this.logger.log(
+        `Of which ${this.workflowCommands.size} are @Workflow: ${[...this.workflowCommands.keys()].join(', ')}`,
+      );
+    }
   }
 
   resolve(commandType: string): CommandConstructor | undefined {
-    return this.registry.get(commandType);
+    return this.workflowCommands.get(commandType);
+  }
+
+  resolveAction(actionName: string): CommandConstructor | undefined {
+    return this.allCommands.get(actionName);
   }
 
   private getCommandFromHandler(handler: any): Function | undefined {

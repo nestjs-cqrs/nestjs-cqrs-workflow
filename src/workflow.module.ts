@@ -1,7 +1,8 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { WORKFLOW_ENGINE } from '@turkelk/nestjs-cqrs-kernel';
+import { CqrsModule } from '@nestjs/cqrs';
+import { WORKFLOW_ENGINE, WorkflowBehavior } from '@turkelk/nestjs-cqrs-kernel';
 import { KogitoClient } from './KogitoClient';
 import { KogitoWorkflowEngine } from './KogitoWorkflowEngine';
 import { WorkflowCallbackController } from './WorkflowCallbackController';
@@ -13,6 +14,7 @@ export interface WorkflowModuleOptions {
   url: string;
   requestTimeout?: number;
   fallback?: 'throw' | 'skip' | 'queue';
+  callbackSecret?: string;
 }
 
 @Module({})
@@ -26,6 +28,7 @@ export class WorkflowModule {
           timeout: options.requestTimeout ?? 10000,
         }),
         TypeOrmModule.forFeature([WorkflowInstance]),
+        CqrsModule,
       ],
       controllers: [WorkflowCallbackController],
       providers: [
@@ -36,9 +39,10 @@ export class WorkflowModule {
           provide: WORKFLOW_ENGINE,
           useClass: KogitoWorkflowEngine,
         },
+        WorkflowBehavior,
         CancelWorkflowHandler,
       ],
-      exports: [WORKFLOW_ENGINE, KogitoClient, WorkflowCommandRegistry],
+      exports: [WORKFLOW_ENGINE, WorkflowBehavior, KogitoClient, WorkflowCommandRegistry],
     };
   }
 }
