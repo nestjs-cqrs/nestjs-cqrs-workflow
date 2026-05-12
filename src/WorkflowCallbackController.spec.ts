@@ -1,129 +1,97 @@
-import { NotFoundException } from '@nestjs/common';
-import { WorkflowCallbackController, WorkflowCallbackPayload } from './WorkflowCallbackController';
-import { WorkflowStatus } from './WorkflowStatus.enum';
-import { Result } from '@turkelk/nestjs-cqrs-kernel';
+import { ForbiddenException, BadRequestException } from '@nestjs/common';
+import { WorkflowCallbackController, WorkflowActionPayload } from './WorkflowCallbackController';
 
 class TestCommand {
+  processInstanceId!: string;
   constructor(public readonly userId: string) {}
 }
 
-const mockPipelineExecutor = {
-  executeCommand: jest.fn(),
-};
-
-const mockRepo = {
-  findOneBy: jest.fn(),
-  save: jest.fn(),
+const mockCommandBus = {
+  execute: jest.fn(),
 };
 
 const mockRegistry = {
-  resolve: jest.fn(),
+  resolveAction: jest.fn(),
 };
 
 describe('WorkflowCallbackController', () => {
   let controller: WorkflowCallbackController;
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    controller = new WorkflowCallbackController(
-      mockPipelineExecutor as any,
-      mockRepo as any,
-      mockRegistry as any,
-    );
-  });
-
-  const basePayload: WorkflowCallbackPayload = {
+  const basePayload: WorkflowActionPayload = {
+    action: 'TestCommand',
+    processId: 'onboarding',
     processInstanceId: 'pi-123',
-    processDefinitionId: 'onboarding',
-    commandType: 'TestCommand',
-    variables: { userId: 'u1' },
-    status: 'COMPLETED',
+    params: { userId: 'u1' },
   };
 
-  it('returns 404 for unknown processInstanceId', async () => {
-    mockRepo.findOneBy.mockResolvedValue(null);
-
-    await expect(controller.handleCallback(basePayload)).rejects.toThrow(NotFoundException);
-  });
-
-  it('returns acknowledged for duplicate callback on completed workflow', async () => {
-    mockRepo.findOneBy.mockResolvedValue({
-      id: 'wf-1',
-      status: WorkflowStatus.COMPLETED,
+  describe('with secret configured', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      controller = new WorkflowCallbackController(
+        mockCommandBus as any,
+        mockRegistry as any,
+        { callbackSecret: 's3cret' },
+      );
     });
 
-    const result = await controller.handleCallback(basePayload);
+    it('rejects requests with wrong secret', async () => {
+      await expect(
+        controller.handleAction('wrong', basePayload),
+      ).rejects.toThrow(ForbiddenException);
+    });
 
-    expect(result).toEqual({ acknowledged: true });
-    expect(mockPipelineExecutor.executeCommand).not.toHaveBeenCalled();
+    it('accepts requests with correct secret', async () => {
+      mockRegistry.resolveAction.mockReturnValue(TestCommand);
+      mockCommandBus.execute.mockResolvedValue({ ok: true });
+
+      const result = await controller.handleAction('s3cret', basePayload);
+
+      expect(result).toEqual({ ok: true });
+    });
   });
 
-  it('re-dispatches command with correct context on callback', async () => {
-    const instance = {
-      id: 'wf-1',
-      status: WorkflowStatus.STARTED,
-      commandType: 'TestCommand',
-      commandPayload: { userId: 'u1' },
-      processVariables: null,
-      completedAt: null,
-    };
-    mockRepo.findOneBy.mockResolvedValue(instance);
-    mockRepo.save.mockResolvedValue(instance);
-    mockRegistry.resolve.mockReturnValue(TestCommand);
-    mockPipelineExecutor.executeCommand.mockResolvedValue(Result.success({ done: true }));
+  describe('without secret configured', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      controller = new WorkflowCallbackController(
+        mockCommandBus as any,
+        mockRegistry as any,
+        {},
+      );
+    });
 
-    const result = await controller.handleCallback(basePayload);
+    it('throws BadRequestException for unknown action', async () => {
+      mockRegistry.resolveAction.mockReturnValue(undefined);
 
-    expect(result).toEqual({ acknowledged: true });
-    expect(mockPipelineExecutor.executeCommand).toHaveBeenCalledWith(
-      expect.any(TestCommand),
-      expect.any(Map),
-    );
-    const context = mockPipelineExecutor.executeCommand.mock.calls[0][1] as Map<string, unknown>;
-    expect(context.get('workflow-phase')).toBe('execute');
-    expect(context.get('workflow-instance-id')).toBe('wf-1');
-    expect(instance.status).toBe(WorkflowStatus.COMPLETED);
-  });
+      await expect(
+        controller.handleAction(undefined as any, basePayload),
+      ).rejects.toThrow(BadRequestException);
+    });
 
-  it('updates status to FAILED when handler returns failure', async () => {
-    const instance = {
-      id: 'wf-1',
-      status: WorkflowStatus.STARTED,
-      commandType: 'TestCommand',
-      commandPayload: { userId: 'u1' },
-      processVariables: null,
-      completedAt: null,
-    };
-    mockRepo.findOneBy.mockResolvedValue(instance);
-    mockRepo.save.mockResolvedValue(instance);
-    mockRegistry.resolve.mockReturnValue(TestCommand);
-    mockPipelineExecutor.executeCommand.mockResolvedValue(
-      Result.failure('INTERNAL_ERROR' as any, 'handler failed'),
-    );
+    it('dispatches the resolved command via CommandBus', async () => {
+      mockRegistry.resolveAction.mockReturnValue(TestCommand);
+      mockCommandBus.execute.mockResolvedValue({ done: true });
 
-    await controller.handleCallback(basePayload);
+      const result = await controller.handleAction(undefined as any, basePayload);
 
-    expect(instance.status).toBe(WorkflowStatus.FAILED);
-    expect(mockRepo.save).toHaveBeenCalledTimes(2);
-  });
+      expect(result).toEqual({ done: true });
+      expect(mockRegistry.resolveAction).toHaveBeenCalledWith('TestCommand');
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'u1',
+          processInstanceId: 'pi-123',
+        }),
+      );
+    });
 
-  it('sets IN_PROGRESS for intermediate (ACTIVE) callbacks', async () => {
-    const instance = {
-      id: 'wf-1',
-      status: WorkflowStatus.STARTED,
-      commandType: 'TestCommand',
-      commandPayload: { userId: 'u1' },
-      processVariables: null,
-      completedAt: null,
-    };
-    mockRepo.findOneBy.mockResolvedValue(instance);
-    mockRepo.save.mockResolvedValue(instance);
-    mockRegistry.resolve.mockReturnValue(TestCommand);
-    mockPipelineExecutor.executeCommand.mockResolvedValue(Result.success(undefined));
+    it('constructs command as instance of resolved class', async () => {
+      mockRegistry.resolveAction.mockReturnValue(TestCommand);
+      mockCommandBus.execute.mockResolvedValue(undefined);
 
-    await controller.handleCallback({ ...basePayload, status: 'ACTIVE' });
+      await controller.handleAction(undefined as any, basePayload);
 
-    expect(instance.status).toBe(WorkflowStatus.IN_PROGRESS);
-    expect(instance.completedAt).toBeNull();
+      const dispatched = mockCommandBus.execute.mock.calls[0][0];
+      expect(dispatched).toBeInstanceOf(TestCommand);
+    });
   });
 });
